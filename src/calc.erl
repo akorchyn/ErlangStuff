@@ -1,17 +1,27 @@
 -module(calc).
--export([rpn/1, calc/1]).
+-export([evaluate/1]).
 
-rpn(String)->rpncalc_implementation(string:tokens(String, " ")).
-% calc(String)->rpncalc_implementation(parse_to_polish(string:tokens(String, " "))).
-calc(String)->parse_to_polish(string:tokens(String, " ")).
+evaluate(String) ->
+    case evaluate(postfix, String) of
+        invalid_expression -> 
+            try evaluate(infix, String) of
+                Var -> Var
+            catch
+                _:_ -> invalid_notation
+            end;
+        Var -> Var
+    end.
 
+evaluate(postfix, String)->rpncalc_implementation(string:tokens(String, " "));
+evaluate(infix, String)->rpncalc_implementation(parser(tokenizer(String), []));
+evaluate(_, _) -> invalid_notation.
 
 rpncalc_implementation(Tokens) ->
     try lists:foldl(fun operate/2, [], Tokens) of
         [A] -> A;
         _ -> invalid_expression
     catch
-        _ -> invalid_expression
+        _:_ -> invalid_expression
     end.
 
 operate("+", [A, B | T]) -> [B + A | T];
@@ -30,26 +40,20 @@ operate(Number, Stack) when is_integer(Number) -> [Number | Stack].
 
 %% Transform to RPN
 
-plus_minus([]) -> [];
-plus_minus(["+" | Tokens]) -> plus_minus(Tokens) ++ ["+"];
-plus_minus(["-" | Tokens]) -> plus_minus(Tokens) ++ ["-"];
-plus_minus(Tokens) -> mul_div(Tokens).
+tokenizer(Str) ->    
+     {ok, Tokens, _} = erl_scan:string(Str ++ "."),
+     {ok, [E]} = erl_parse:parse_exprs(Tokens),
+     E.
 
-mul_div([]) -> [];
-mul_div(["*" | Tokens]) -> plus_minus(Tokens) ++ ["*"];
-mul_div(["/" | Tokens]) -> plus_minus(Tokens) ++ ["/"];
-mul_div(Tokens) -> symbols(Tokens).
-
-symbols([]) -> [];
-symbols(["(" | Tokens]) -> plus_minus(Tokens);
-symbols([")" | Tokens]) -> plus_minus(Tokens);
-symbols([StringRepresentation | Tokens]) -> [get_number(StringRepresentation) | plus_minus(Tokens)].
-
-parse_to_polish(Tokens) -> plus_minus(Tokens).
+parser({op, _, What, LS, RS}, RPN) ->
+    New_RPN = parser(LS, RPN),
+    Result = parser(RS, New_RPN),
+    Result ++ [atom_to_list(What)];
+parser({integer, _, N}, RPN) -> RPN ++ [N];
+parser({float, _, N}, RPN) -> RPN ++ [N].
 
 
 %% Helper functions
-
 get_number(StringRepresentation) ->
     try erlang:list_to_float(StringRepresentation) of
         Var -> Var
